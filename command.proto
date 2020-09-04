@@ -1,0 +1,44 @@
+syntax = "proto2";
+
+message User{
+	required string tag = 1;
+	required string uuid = 2;
+
+	optional int32 speedLimit = 3; // per KiloByte
+}
+
+message ClientHandShakeRequest{
+	required string clientToken = 1;
+	required bool isQueryUsers = 2;
+}
+
+message ServerHandShakeResponse{
+	enum Status {
+		OK = 0;
+		INVAILD_TOKEN = 1;
+		UNAVAILABLE_TOKEN = 2;
+	}
+	required Status status = 1;
+	repeated User users = 2;
+}
+
+message SimpleUserReport {
+	required string tag = 1;
+	required int64 byteUpload = 2;
+	required int64 byteDownload = 3;
+	required int64 KiloPeakSpeed = 4;
+}
+
+message ClientUsersReport{
+	required fixed64 timestamp = 1;
+	repeated SimpleUserReport userReports = 2;
+}
+
+message ServerUserCommand{
+	enum Type{
+		UPDATE = 0;
+		DELETE = 1;
+	}
+	required Type type = 1;
+	required User user = 2;
+}

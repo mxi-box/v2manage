@@ -1,3 +1,5 @@
+#FROM https://github.com/spencer404/v2ray_api/blob/master/compile.py
+
 """从v2ray-core源码目录中寻找`.proto`文件并编译"""
 import os
 import sys

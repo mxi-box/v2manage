@@ -4,8 +4,10 @@ import struct
 import pymysql
 import logger
 from logger import logger as log
+import signal
 
 import userman
+from netutil import readProtoFrom, writeProtoIn
 import config
 import command_pb2
 
@@ -48,7 +50,7 @@ class ManagerInMaster(userman.UserManager):
 				self._clients[client.token] = client
 
 	async def connectAndInit(self, mysql_host:str, mysql_port:int, mysql_db:str, mysql_user:str, mysql_pw:str, host:str, port:int):
-		log.info("connecting to mysql ")
+		log.info("connecting to mysql")
 		self._mysql_db = pymysql.connections.Connection(
 		host=mysql_host,
 		port=mysql_port,
@@ -64,9 +66,8 @@ class ManagerInMaster(userman.UserManager):
 			peeraddress = writer.get_extra_info('peername')[:2]
 			logger.logger.info("client at %s:%d is trying to connect" % peeraddress)
 
-			(handshake_length,) = struct.unpack('!I', await reader.readexactly(4))
 			handshake = command_pb2.ClientHandShakeRequest()
-			handshake.ParseFromString(await reader.readexactly(handshake_length))
+			await readProtoFrom(reader, handshake)
 
 			response = command_pb2.ServerHandShakeResponse()
 			client = self._clients[handshake.clientToken]
@@ -78,6 +79,7 @@ class ManagerInMaster(userman.UserManager):
 				success = False
 			else:
 				response.status = command_pb2.ServerHandShakeResponse.Status.OK
+				client.socket_writer = writer
 				for user in self._users:
 					user_info = response.users.add()
 					user_info.tag = user.tag
@@ -85,9 +87,7 @@ class ManagerInMaster(userman.UserManager):
 					user_info.speedLimit = user.speedLimit
 				success = True
 
-			response_str = response.SerializeToString()
-			writer.write(struct.pack('!I',len(response_str)))
-			writer.write(response_str)
+			writeProtoIn(writer, response)
 			await writer.drain()
 			if not success:
 				writer.close()
@@ -106,6 +106,15 @@ class ManagerInMaster(userman.UserManager):
 		self._mysql_db.close()
 		
 if __name__ == "__main__":
+
+
+	def shutdown(*args):
+		manager.close()
+		loop.close()
+		logger.logger.warning("shutdown")
+
+
+	signal.signal(signal.SIGINT, shutdown)
 	loop = asyncio.get_event_loop()
 	manager = ManagerInMaster()
 	loop.run_until_complete(manager.connectAndInit(
@@ -120,10 +129,9 @@ if __name__ == "__main__":
 	try:
 		loop.run_forever()
 	except KeyboardInterrupt:
-		print('a')
-	manager.close()
-	loop.close()
-	logger.logger.warning("shutdown")
+		shutdown()
+	
+	
 
 
 

@@ -4,6 +4,7 @@ import ssl
 import struct
 
 import userman
+from netutil import readProtoFrom, writeProtoIn
 import config
 
 import command_pb2
@@ -41,14 +42,12 @@ class ManagerInSlave(userman.UserManager):
 		handshake.clientToken = self.slave_token
 		handshake.isQueryUsers = initUsers
 
-		request_str = handshake.SerializeToString()
-		self.socket_writer.write(struct.pack('!I',len(request_str)))
-		self.socket_writer.write(request_str)
+
+		writeProtoIn(self.socket_writer, handshake)
 		await self.socket_writer.drain()
 
-		(response_length,) = struct.unpack('!I', await self.socket_reader.readexactly(4))
 		response = command_pb2.ServerHandShakeResponse()
-		response.ParseFromString(await self.socket_reader.readexactly(response_length))
+		await readProtoFrom(self.socket_reader, response)
 		if response.status != command_pb2.ServerHandShakeResponse.Status.OK:
 			raise Exception('handshake failed') #TODO complete exception process
 

@@ -1,6 +1,5 @@
 import asyncio
 import ssl
-import struct
 import pymysql
 import logger
 from logger import logger as log

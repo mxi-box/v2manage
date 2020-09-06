@@ -1,7 +1,6 @@
 import grpc
 import asyncio
 import ssl
-import struct
 
 import userman
 from netutil import readProtoFrom, writeProtoIn
@@ -28,18 +27,18 @@ class UserInSlave(userman.User):
 
 
 class ManagerInSlave(userman.UserManager):
-	isActive = False
-	slave_token = None
-	v2ray_channel = None
-	socket_reader = None
+	_isActive = False
+	_slave_token = None
+	_v2ray_channel = None
+	_socket_reader = None
 	socket_writer = None
 
 	def __init__(self, token:str):
-		self.slave_token = token
+		self._slave_token = token
 
 	async def __doMasterHandshake(self, initUsers:bool):
 		handshake = command_pb2.ClientHandShakeRequest()
-		handshake.clientToken = self.slave_token
+		handshake.clientToken = self._slave_token
 		handshake.isQueryUsers = initUsers
 
 
@@ -47,11 +46,11 @@ class ManagerInSlave(userman.UserManager):
 		await self.socket_writer.drain()
 
 		response = command_pb2.ServerHandShakeResponse()
-		await readProtoFrom(self.socket_reader, response)
+		await readProtoFrom(self._socket_reader, response)
 		if response.status != command_pb2.ServerHandShakeResponse.Status.OK:
 			raise Exception('handshake failed') #TODO complete exception process
 
-		self.isActive = True
+		self._isActive = True
 		if initUsers:
 			self._users.clear()
 			for user_info in response.users:
@@ -61,7 +60,7 @@ class ManagerInSlave(userman.UserManager):
 				user_v2 = user_pb2.User(level = 0, email = user.tag)
 				account_v2 = vmess_account_pb2.Account(uuid = user.uuid, alter_id = 32)
 				user_v2.account = typed_message_pb2.TypedMessage(type='v2ray.core.proxy.vmess.Account', value=account_v2.SerializeToString())
-				with handler_command_grpc.HandlerServiceStub(self.v2ray_channel) as stub:
+				with handler_command_grpc.HandlerServiceStub(self._v2ray_channel) as stub:
 					for inbound_tag in config.V2RAY_INBOUNDS: #TODO dont call config directly
 						stub.AlterInbound(handler_command_pb2.AlterInboundRequest(
 							tag=inbound_tag,
@@ -78,27 +77,27 @@ class ManagerInSlave(userman.UserManager):
 	async def connectAndInit(self, v2ray_api_address:str, master_host:str, master_port:int, master_cert:str):
 		self.master_host = master_host
 		self.master_port = master_port
-		self.v2ray_channel = grpc.insecure_channel(v2ray_api_address)
+		self._v2ray_channel = grpc.insecure_channel(v2ray_api_address)
 
 		self.ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile=master_cert)
 		self.ssl_context.check_hostname = False
-		(self.socket_reader, self.socket_writer) = await asyncio.open_connection(master_host, master_port, ssl=self.ssl_context)
+		(self._socket_reader, self.socket_writer) = await asyncio.open_connection(master_host, master_port, ssl=self.ssl_context)
 
 		await self.__doMasterHandshake(True)
 
 	async def reconnect(self):
-		(self.socket_reader, self.socket_writer) = await asyncio.open_connection(self.master_host, self.master_port, ssl=self.ssl_context)
+		(self._socket_reader, self.socket_writer) = await asyncio.open_connection(self.master_host, self.master_port, ssl=self.ssl_context)
 		await self.__doMasterHandshake(False) #TODO add server command queue for network traffic jam
 
 
 	async def watchCommand(self):
-		if self.socket_reader is None:
+		if self._socket_reader is None:
 			raise Exception("Manager is not initialized")
-		while self.isActive:
+		while self._isActive:
 			try:
-				(command_length,) = struct.unpack('!I', await self.socket_reader.readexactly(4))
 				command = command_pb2.ServerUserCommand()
-				command.ParseFromString(await self.socket_reader.readexactly(command_length))
+				await readProtoFrom(self._socket_reader, command)
+				
 				if command.type == command_pb2.ServerUserCommand.Type.UPDATE:
 					self._users[command.user.tag] = UserInSlave(command.user)
 				elif command.type == command_pb2.ServerUserCommand.Type.DELETE:

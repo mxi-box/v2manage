@@ -20,10 +20,20 @@ class Client:
 		self.token = token
 		self.name = name
 
+
+
 class ManagerInMaster(userman.UserManager):
 	_mysql_db = None
 	_clients = {}
 	_server = None
+	_cert_chain = None
+	_cert_key = None
+
+	
+	def __init__(self, cert_chain:str, cert_key:str):
+		self._cert_chain = cert_chain
+		self._cert_key = cert_key
+
 
 	async def __loadFromDatabase(self):
 		with self._mysql_db.cursor() as cursor:
@@ -80,10 +90,11 @@ class ManagerInMaster(userman.UserManager):
 				response.status = command_pb2.ServerHandShakeResponse.Status.OK
 				client.socket_writer = writer
 				for user in self._users:
-					user_info = response.users.add()
-					user_info.tag = user.tag
-					user_info.uuid = user.uuid
-					user_info.speedLimit = user.speedLimit
+					response.users.add(
+						tag=user.tag,
+						uuid=user.uuid,
+						speedLimit=user.speedLimit
+					)
 				success = True
 
 			writeProtoIn(writer, response)
@@ -96,7 +107,7 @@ class ManagerInMaster(userman.UserManager):
 		logger.logger.info("starting listener")
 
 		ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-		ssl_context.load_cert_chain("./fullchain.pem", "./privkey.pem")
+		ssl_context.load_cert_chain(self._cert_chain, self._cert_key)
 		self._server = await asyncio.start_server(serverEcho, host, port, ssl=ssl_context)
 		logger.logger.warning("Initialized")
 
@@ -115,7 +126,7 @@ if __name__ == "__main__":
 
 	signal.signal(signal.SIGINT, shutdown)
 	loop = asyncio.get_event_loop()
-	manager = ManagerInMaster()
+	manager = ManagerInMaster("./fullchain.pem", "./privkey.pem")
 	loop.run_until_complete(manager.connectAndInit(
 		mysql_host=config.MYSQL_HOST,
 		mysql_port=config.MYSQL_PORT,
